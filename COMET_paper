@@ -1,0 +1,438 @@
+ABSTRACT
+The evolution of biological neural systems has led to both modularity and sparse
+coding, which enables energy efficiency and robustness across the diversity of
+tasks in the lifespan. In contrast, standard neural networks rely on dense, nonspecialized architectures, where all model parameters are simultaneously updated
+to learn multiple tasks, leading to interference. Current sparse neural network
+approaches aim to alleviate this issue but are hindered by limitations such as 1)
+trainable gating functions that cause representation collapse, 2) disjoint experts
+that result in redundant computation and slow learning, and 3) reliance on explicit input or task IDs that limit flexibility and scalability. In this paper we propose Conditionally Overlapping Mixture of ExperTs (COMET), a general deep
+learning method that addresses these challenges by inducing a modular, sparse architecture with an exponential number of overlapping experts. COMET replaces
+the trainable gating function used in Sparse Mixture of Experts with a fixed, biologically inspired random projection applied to individual input representations.
+This design causes the degree of expert overlap to depend on input similarity, so
+that similar inputs tend to share more parameters. This results in faster learning
+per update step and improved out-of-sample generalization. We demonstrate the
+effectiveness of COMET on a range of tasks, including image classification, language modeling, and regression, using several popular deep learning architectures.
+
+1 INTRODUCTION
+In recent years, there has been a trend towards developing increasingly larger models (OpenAI,
+2023a;b; Fedus et al., 2022; Shuster et al., 2022; Chowdhery et al., 2022), driven by the understanding that a neural network’s learning capacity depends on its number of parameters (Shazeer et al.,
+2017). This approach has yielded impressive results in various fields, including computer vision
+(Dosovitskiy et al., 2021; Kirillov et al., 2023) and language modeling (OpenAI, 2023b; Chowdheryet al., 2022). However, with such large size come difficulties, including increased training costs and
+growing requirements for large amounts of memory and storage.
+One approach to mitigating some of these challenges is sparsity, where a subset of the model’s
+parameters is selectively utilized in the computational graph. This concept of sparsity has been
+widely explored in machine learning (Jacobs et al., 1991; Jordan & Jacobs, 1993; LeCun et al.,
+1989; Zhou et al., 2019; Hoefler et al., 2021; Shazeer et al., 2017; Bair et al., 2024). Researchers
+have observed significant benefits of sparsity, including reduced inference costs (Han et al., 2016;
+Shazeer et al., 2017), improved generalization capabilities (LeCun et al., 1989; Jacobs & Burkholz,
+2024; Frankle & Carbin, 2019; Paul et al., 2023), enhanced learning efficiency (LeCun et al., 1989),
+accelerated learning speed (LeCun et al., 1989; Mittal et al., 2022), less interference and forgetting
+(Raia, 2020), forward knowledge transfer (Andle et al., 2023; Raia, 2020; Yildirim et al., 2023), and
+compositionality (Pfeiffer et al., 2024).
+Early work on sparsity in neural networks focused on simple methods such as Dropout (Srivastava
+et al., 2014) and L1 regularization (Tibshirani, 1996; Ng, 2004). These and subsequent works explore sparsity at a fine level of granularity, including single parameters (Mallya et al., 2018; Mallya
+& Lazebnik, 2018), individual neurons (Xu et al., 2024), or CNN filters (Chen et al., 2019). Other
+research has explored sparsity at the level of whole networks or sub-networks within the mixture of
+experts (MoE) framework (Shazeer et al., 2017; Bengio, 2013). These methods generally utilize a
+routing or gating function (Rosenbaum et al., 2017; 2019; Shazeer et al., 2017; Pfeiffer et al., 2024),
+which decides which parameters or sub-networks of the model to activate based on the input.
+However, existing sparse methods have limitations, which we would summarize as five key concerns: Firstly, most approaches rely on trainable gating functions (Shazeer et al., 2017; Mostafa &
+Wang, 2019; Rasmussen & Ghahramani, 2001; Li et al., 2023; Rahaman et al., 2021; Chen et al.,
+2019; Shazeer et al., 2018; Zhou et al., 2022; Gururangan et al., 2022; Lin et al., 2021; Ba & Frey,
+2013; Bengio et al., 2016; Fedus et al., 2022; Mallya et al., 2018; Mallya & Lazebnik, 2018; Fernando et al., 2017; Keshari et al., 2018). This design choice is problematic for several reasons,
+including forgetfulness in continual learning (Pfeiffer et al., 2024; Raia, 2020), representation collapse (i.e., degenerate experts; Chen et al., 2023; Pfeiffer et al., 2024), complex training procedures
+(Rosenbaum et al., 2019), and other issues (Rosenbaum et al., 2017; Pfeiffer et al., 2024; Rosenbaum
+et al., 2019). Moreover, using non-trainable routing functions can be more effective (Mittal et al.,
+2022; Muqeeth et al., 2022). Secondly, many state-of-the-art systems employ architectures based
+on disjoint experts that do not share parameters (Shazeer et al., 2017; Pfeiffer et al., 2024). This
+design choice can lead to redundancies and may limit generalization; overlap can also be beneficial
+(French, 1993; Maini et al., 2023). Thirdly, even when experts overlap, it is unclear whether models
+can effectively learn to map similar inputs to the same experts, potentially resulting in redundancies
+(Chen et al., 2023) or interference (Pfeiffer et al., 2024). Fourthly, many existing methods require
+input or task IDs to determine which mask to apply (Mallya et al., 2018; Yang et al., 2020; Masse
+et al., 2018; Maini et al., 2023; Pes et al., 2024; Mittal et al., 2022; Muqeeth et al., 2022; Kang
+et al., 2024; Wortsman et al., 2020), which can be restrictive, as meta-information about inputs is
+rarely available in real-world applications (Aljundi et al., 2019; Ye & Bors, 2022; Wang et al., 2022).
+Lastly, the number of experts in current systems is limited, often ranging from a few to a couple of
+thousand (Shazeer et al., 2017; Jiang et al., 2024), which may not be sufficient for complex tasks
+(Rasmussen & Ghahramani, 2001).
+In this paper we introduce Conditionally Overlapping Mixture of ExperTs (COMET), a general deep
+learning method that induces a modular, sparse architecture in neural networks, with a number of
+important properties. First, COMET uses a non-trainable gating function, eliminating the need for
+iterative pruning or continuous sparsification. Instead, we employ a fixed random projection followed by a k-winner-take-all cap operation, inspired by the brain’s efficient use of a limited number
+of active cells via lateral inhibition. As in the brain, these mechanisms combine to produce sparse
+representations with overlap that depends on input similarity (Bruhin & Davies, 2022). Second,
+COMET does not require fixed specialization of sub-networks or advance knowledge of the active
+neurons required for each task, enabling more flexibility and adaptability. Third, the number of
+possible experts in COMET is exponential in the model size, exceeding the limit of a few thousand
+in recent work, to effectively tackle more complex tasks. Fourth, these experts overlap based on
+unsupervised information from input similarities. This yields faster learning and improved generalization. It does this without increasing the number of trainable parameters, or requiring input or task
+IDs to determine which mask to apply
+
+
+COMET integrates concepts from diverse research areas into a concise framework: fixed random
+projection and k-winner-take-all from neuroscience, routing functions from modular neural networks, expert-based approaches from the MoE literature, the notion of implicit experts from dynamic neural networks, the integration of sparsity and modularity from conditional computation,
+input-dependent masking from various deep learning areas, and the importance of active parameter
+overlap from continual learning. The present paper focuses on learning and out-of-sample generalization in single tasks, but we conjecture COMET’s input-dependent sparsity will also yield
+advantages for settings involving multiple tasks, including transfer learning, continual learning, and
+robustness to catastrophic forgetting. These will be tested in future work, although we report a
+preliminary test of transfer learning in appendix A.10.
+We validate our approach through experiments on seven diverse tasks, including image classification, language modeling, and regression, demonstrating that our method is applicable to many
+popular model architectures such as vision transformers, MLP-mixers, GPTs, and standard MLPs,
+and consistently provides improved performance.
+2 RELATED WORK
+Sparsity Sparsity in deep learning refers to systems where not all parameters are active or participating in the computational graph. Fixed sparsity, such as L1 regularization, intends to minimize
+the number of active parameters through optimizing a continuous loss function. Variable sparsity
+includes various methods, such as randomness as in Dropout (Srivastava et al., 2014), and inputdependent, such as in sparse MoE (Shazeer et al., 2017). Notably, continuously optimizing deep
+networks to be sparse is an NP-hard problem (Jacobs & Burkholz, 2024), and pre-defined sparse
+architectures can be restrictive. To circumvent that, we propose sparsification using a biologically
+motivated approach of random projection followed by a cap operation, which activates the strongest
+cells in the network, similar to the sensory system of fruit flies (Bruhin & Davies, 2022).
+Modularity Modularity is related to sparsity, where information is conditionally routed to a subset
+of the network’s parameters (Pfeiffer et al., 2024; Rosenbaum et al., 2017). Modular methods can
+be split into two types. Firstly, those with trainable routing functions, including the sparse MoE
+(Shazeer et al., 2017), adaptively determine the active parameters during training. Although widely
+used, this approach can lead to representation collapse, forgetfulness, and redundant computation
+(Pfeiffer et al., 2024). Secondly, fixed routing function methods have been shown to be more effective (Mittal et al., 2022; Muqeeth et al., 2022). However, these methods typically require prior
+knowledge of module specialization (Pfeiffer et al., 2024; Muqeeth et al., 2022; Mittal et al., 2022),
+which is often not available in practice. In contrast, our work demonstrates that module specialization can be achieved in a fully unsupervised manner using fixed random projections. Unlike previous
+studies that employed fixed random projections as routing functions, either with non-overlapping experts (Roller et al., 2021; Chen et al., 2023) or with reduced performance (Bruhin & Davies, 2022),
+our approach focuses on the more challenging setting of overlapping experts and achieves large
+performance gains across diverse tasks. Additionally, our expert overlap correlates with input similarity, making it more likely that parameters are shared between similar inputs. This, in turn, enables
+positive knowledge transfer between items, resulting in faster learning and improved generalization.
+Moreover, as the experts overlap, our approach benefits from input-dependent sparsity without an
+explicitly modular architecture (like in MoE).
+Conditional Computation Conditional computation integrates sparsity and modularity, in that parameters are dropped in a learned and optimized manner, rather than randomly and independently
+(Bengio, 2013). A notable example is the sparse MoE framework (Shazeer et al., 2017). Our approach diverges from previous work by uniquely integrating several desirable properties, including
+fixed routing, overlapping expert assignments based on input similarities, mask determination without requiring meta-information, and scalability to an exponentially large number of experts.
+Dynamic Neural Networks Dynamic neural networks (Han et al., 2021) share similarities with
+conditional computation. Unlike traditional MoE approaches, dynamic neural networks do not have
+explicitly defined experts. Instead, they dynamically select units, layers, or components from the
+main model for each input (Han et al., 2021). Our approach has parallels with some dynamic neural
+network methods, such as Piggyback (Mallya et al., 2018) and PackNet (Mallya & Lazebnik, 2018),
+which also do not define explicit experts. However, our method differs in two key ways. Firstly, itdoes not require meta-information to determine the expert mask. Secondly, it ensures that any given
+input always maps to the same expert throughout both training and inference. This contrasts with
+architectures that use trainable gating functions, where the same input can activate different experts
+or representations at different stages of learning, which can be seen as a “moving target”.
+The example-tied dropout scheme of Maini et al. (2023) is another dynamic neural network in which
+neurons are partitioned into a “generalization” pool that is active for all inputs and a “memorization”
+pool for which a small subset is active for each input. The assignment of memorization neurons to
+each input example is random and fixed throughout training. Our approach differs from example-tied
+dropout in that similar inputs share more active neurons, which facilitates generalization.
+The model superposition of Cheung et al. (2019) applies a task-dependent orthogonal transformation
+to the activation vector at each layer. Assuming the input distribution has effective dimensionality
+less than that of the activation space (i.e., the layer width), these transformations map different
+tasks into different subspaces allowing them to be learned semi-independently. Our input-dependent
+masking also restricts the representation of each example to a subspace, but it does not require task
+IDs and it leads similar inputs to have more overlapping representations.
+3 MIXTURE OF EXPERTS AND INPUT-DEPENDENT MASKING
+A standard MoE architecture involves a disjoint set of experts and a gate that combines their predictions (Jacobs et al., 1991). For example in the sparse MoE framework proposed by Shazeer et al.
+(2017), each MoE module consists of n expert networks, E1, ..., En, and a gating network, G, that
+outputs a sparse n-dimensional vector of mixture weights. The gating and expert networks are all
+trainable, each with its own set of parameters. The prediction for an input x is Pn
+i=1 G(x)iEi(x).
+Separately, several recent works have proposed versions of input-dependent masking (Maini et al.,
+2023; Mallya et al., 2018; Mallya & Lazebnik, 2018; Yang et al., 2020; Hung et al., 2019). The general framework involves a network with n neurons and a masking function m: X → {0, 1}
+n (where
+X is the input space). In processing an example x, the network’s activations are multiplied elementwise with m(x). Thus the prediction for x is Fm(x)(x) where Fm(x)
+is the function computed by
+the sub-network corresponding to the mask m(x).
+Combining these two lines of work, we propose to view the sub-networks defined by inputdependent masking as overlapping experts. Any two experts will typically share many active neurons, and hence weights. This is in contrast to standard MoE where the experts learn disjoint sets
+of parameters. In the overlapping MoE framework, every subset of the full network is a (potential)
+expert. The sub-network Fm(x)
+is an expert for x, and it is also a partial expert for any other x
+′
+to
+the degree that m(x) and m(x
+′
+) overlap, as determined by the inner product m(x)
+⊤m(x
+′
+). In the
+overlapping MoE framework, the gating network G is replaced by the masking function m.
+We further propose that similar inputs should map to similar (i.e., more overlapping) experts. This
+will facilitate generalization because what is learned about one input will selectively generalize to
+similar inputs. The next section explains how COMET achieves this property using biologically
+inspired fixed random projections (Vℓ in eq. (4)) and k-winner-take-all capping (Ckℓ
+in eq. (5)).
+4 CONDITIONALLY OVERLAPPING MIXTURE OF EXPERTS (COMET)
+Our proposed COMET method applies to any backbone NN, augmenting it with a second NN called
+a routing network that computes input-dependent masks for all layers of the backbone network.
+We first describe the COMET architecture for the case where the backbone network is an MLP.
+Let the backbone MLP have L layers, with layer ℓ having Nℓ neurons and learnable parameters
+comprising a weight matrix Wℓ ∈ R
+Nℓ×Nℓ−1 and bias bℓ ∈ R
+Nℓ
+. Then the forward pass of the
+unmodified MLP is defined by
+aℓ = Wℓxℓ−1 + bℓ (1)
+xℓ = f(aℓ) (2)
+for 1 ≤ ℓ ≤ L, where aℓ is the pre-activation at layer ℓ, f is the elementwise activation function, x0
+is the input to the network, and aL is its output.
+
+
+COMET’s routing network is a second MLP with the same shape, defined by random weight matrices Vℓ (for simplicity we omit bias parameters). We sample Vℓ from the same distribution used for
+initializing Wℓ (U(−N
+−1/2
+ℓ−1
+, N −1/2
+ℓ−1
+) in our experiments). We denote this network’s pre-activations
+and activations as cℓ and zℓ (analogous to aℓ and xℓ in the backbone network), with input z0 = x0.
+The computation of the routing network is similar to that of the backbone MLP, except that at each
+layer it computes a binary vector mℓ that is then used to mask the activations in both networks. The
+mask is computed using a k-winner-take-all capping function Ck:
+[Ck(v)]i =
+
+1 |{j : vj ≥ vi}| ≤ k
+0 otherwise (3)
+We allow a fixed proportion pk of neurons at each layer to survive the mask, so that kℓ = pkNℓ.
+Then the forward pass of the routing network is defined by
+cℓ = Vℓzℓ−1 (4)
+mℓ = Ckℓ
+(cℓ) (5)
+zℓ = mℓ ◦ g(cℓ) (6)
+where ◦ indicates elementwise multiplication and g is the routing network’s activation function (we
+use the identity g(c) = c in the present experiments). The layerwise masks mℓ computed by the
+routing network are then applied to the backbone network, so that eqs. (1) and (2) are replaced by
+aℓ = Wℓxℓ−1 (7)
+xℓ = mℓ ◦ f(aℓ) (8)
+Note that the network’s output aL is computed before mL would be applied, avoiding undesirable
+masking of the model’s prediction.
+
+
+This input-dependent masking results in a maximum number of experts that is exponential in the
+model size at each layer, specifically Nℓ
+kℓ
+
+. Therefore in practical settings every input will have
+its own expert. One consideration for this calculation might be interference among experts. Previous work has studied how multiple models can be superposed within one network (Cheung et al.,
+2019), and Elhage et al. (2022) show a layer with Nℓ neurons can hold O(e
+N ) representations that
+are pairwise orthogonal within a certain finite tolerance, thus minimizing interference. However,
+more important for the present work is that overlap between models is a desired property because it
+promotes generalization between similar inputs.
+COMET layers differ from sparse MoE (Shazeer et al., 2017) layers in two major ways:
+1. Architecturally: Whereas a layer in a standard layered MoE architecture consists of n
+experts and a gating network, a COMET layer contains a random, non-trainable matrix and
+a k-winner-take-all cap operation. Instead of pre-defined experts, COMET layer modifies
+the computation of the MLP to activate only a subset of its parameters contingent on the
+input; this subset can be seen as an implicit expert.
+5
+Published as a conference paper at ICLR 2025
+2. In the way the information is passed: Sparse MoE is applied in layers with a new gating
+network at each layer, which takes as input the backbone activation at the previous layer.
+Thus the gating and backbone networks at each layer take the same input. In a COMET
+architecture the routing network operates independently of the backbone network, so the
+inputs to the two are distinct (except for the first layer of the network). This ensures that a
+given example maps to the same implicit expert throughout both training and inference.
+Several other important differences between existing approaches and COMET are: 1) COMET’s
+gating network does not require training; 2) COMET does not require fixed specialization of each
+network module, or advanced knowledge of the combination of modules required for each task;
+3) the experts in COMET overlap based on unsupervised information from input similarities; 4)
+COMET does not require input or task IDs to determine which mask to apply; 5) the number of
+possible experts in COMET is exponential in the model size.
+5 EXPERIMENTS
+5.1 SYNTHETIC DATA EXPERIMENTS
+In this section, we describe experiments to verify key properties of a COMET network. First, we
+verify that the combination of the fixed routing function and cap operator maps similar inputs to
+similar masks and show how this sharpens the model’s generalization. Second, we verify that the
+network makes an effective use of the available neurons.
+
+Our goal is to develop a fixed routing function that maps similar inputs to similar (i.e., overlapping)
+experts, thereby facilitating knowledge transfer between items and leading to faster learning and
+improved generalization. One way to approximate generalization between individual training and
+test items is with the neural tangent kernel (NTK; Jacot et al., 2018). Let θ = (W1, b1, . . . ,WL, bL)
+denote the flattened concatenation of all model parameters, let x
+train and x
+test be arbitrary training
+and testing items, and let a
+train
+L
+and a
+test
+L
+be the corresponding model predictions for some fixed
+setting of θ. Generalization from x
+train to x
+test can be defined as the change in prediction a
+test
+L
+from including x
+train in the training set. Formally, under a vanilla GD optimizer on loss L, and in
+the limit of a small learning rate α, the contribution of x
+train to change in a
+test
+L
+is
+1
+α
+∆a
+test
+L −→α→0
+K(x
+train
+, x
+test)∇atrain
+L
+L
+train (9)
+
+where K(x
+train
+, x
+test) is the NL × NL matrix-valued NTK
+K(x
+train
+, x
+test) = ∂a
+test
+L
+∂θ
+
+∂a
+train
+L
+∂θ
+⊤
+(10)
+The RHS of eq. (10) sums over elements of θ, and the contribution from Wℓ is
+X
+ij
+∂a
+test
+L
+∂Wℓ,ij 
+∂a
+train
+L
+∂Wℓ,ij ⊤
+=
+X
+j
+a
+test
+ℓ−1,ja
+train
+ℓ−1,j X
+i
+∂a
+test
+L
+∂atest
+ℓ,i
+∂a
+train
+L
+∂atrain
+ℓ,i !⊤
+(11)
+Thus the contribution of Wℓ to generalization from x
+train to x
+test is proportional to the inner product
+⟨a
+train
+ℓ−1
+, a
+test
+ℓ−1
+⟩. This inner product will be positively related to input similarity ⟨x
+train
+, x
+test⟩ even
+in an unmodified MLP, but our question is how the relationship changes under COMET.
+To answer this question, we conducted an experiment using 500 random pairs of input vectors.
+Each input had length 100 with components sampled iid from N (µ, 25), with µ a random integer
+between 0 and 100. We calculated the cosine similarity (i.e., normalized inner product) between each
+pair of inputs. We then randomly initialized 10 COMET networks for every pair, each comprising
+a backbone network and a routing network which were both MLPs containing 10 hidden layers
+(L = 11) with 512 neurons per hidden layer. We passed both inputs through each of the 10 COMET
+networks, using eqs. (4) to (8) with varying degrees of sparsity pk.
+To analyze the behavior of our fixed gating function, we performed two complementary analyses.
+First, we computed the cosine similarity between the masks obtained for the two inputs in each pair,
+concatenated across layers as (m1, . . . ,mL−1). Note that cosine similarity between binary vectors
+equals their degree of overlap, i.e. the proportion of active neurons for one input that are also active
+for the other. Second, we measured the cosine similarity between the two inputs’ representations
+in the backbone network after applying the gating function as in eq. (8), again concatenating across
+layers as (x1, . . . , xL−1). To obtain a more robust estimate, we averaged the cosine similarities
+across the 10 COMET networks for each input pair, yielding the results in fig. 2.
+This experiment reveals that when input distributions are more similar the overlap between their
+binary masks increases (fig. 2a). This in turn strengthens the relationship between input similarity
+and activation similarity in the backbone network relative to the baseline MLP with pk = 1 (fig. 2b).
+Drawing on the NTK analysis above, we conclude that COMET’s routing function leads the model
+to generalize using a narrower effective kernel. A narrower kernel should not be expected to yield
+universal improvement, but it should be beneficial when the base model has excess capacity for the
+task. The experiments in the next subsections support this prediction, in that we see an advantage
+for COMET particularly with larger models.
+
+One of the challenges in training sparse architectures is representation collapse, where a small subset of experts or neurons becomes dominant, leading to under-utilization of others. This issue is
+particularly concerning when training gating networks, as it can result in “dead” experts or neurons
+that are never activated. Given that our gating network is fixed, it is essential to investigate whether
+this behavior occurs, as it would be permanent.
+To address this, we conducted an experiment where we generated 1000 randomly initialized 4-layer
+COMET MLPs with varying neuron counts per layer Nℓ ∼ U(100, 1000), and varying sparsity
+level 1 − pk ∼ U(0.05, 1), and passed the CIFAR10 dataset through each one. We then analyzed
+the utilization of each neuron, measured by how often it is activated with the given masks, and
+found that only 7.6e
+−4% of neurons across the ensemble had 0% utilization, and fewer than 2%
+of the models had any such neurons, mostly models with a high sparsity level. Figure 3 presents
+utilization plots for two representative networks, illustrating that our fixed gating network avoids
+representation collapse and “dead neurons.” Moreover, when we passed a different dataset (such as
+CIFAR100) through these models, we discovered that many previously inactive neurons were now
+being utilized. Thus, neurons that are infrequently utilized appear to be reserved for unseen data,
+highlighting the network’s adaptability and capacity for generalization.
+The finding is consistent with our previous analysis in section 5.1.1, which showed that the inputdependent gating design inherently activates similar parameters for similar inputs, facilitating forward knowledge transfer. Our results suggest that our approach effectively mitigates the risk of
+representation collapse and promotes healthy utilization of neurons in the network, all without relying on supplementary mechanisms, such as specialized loss terms (Shazeer et al., 2017).
+
+
+STANDARD MLP – CIFAR10
+We apply the COMET method to a standard MLP with 4 layers, varying the number of neurons in
+each layer and the sparsity levels. To evaluate its performance, we compare it to 10 related methods:
+Standard Model: A standard MLP model with the same number of neurons and no sparsity.
+Smaller Model: A smaller model with a reduced number of neurons, specifically pkNℓ where Nℓ
+is the width of the standard model.
+Dropout Model: A standard model with a dropout rate equal to 1 − pk.
+Topk Model: An MLP with a trainable routing function. The cap operation is applied directly to
+the backbone network by replacing eq. (5) with mℓ = Ckℓ
+(aℓ), so that the routing function selects
+the highest k values and masks the remaining ones.
+MoE Trainable: A MoE model with ⌊1/pk⌋ experts, each having pkNℓ neurons in each layer. The
+routing network is a trainable MLP with one hidden layer and a sparse ⌊1/pk⌋-dimensional output.
+MoE Non-trainable: Same as MoE Trainable, with a fixed routing function.
+Layer-wise Routing: An MLP where each backbone hidden layer representation is projected using
+a fixed random matrix, which is then used to develop the binary mask for the next layer. This is done
+by replacing eq. (4) with cℓ = Vℓxℓ−1.
+Bernoulli Masking: An MLP where each training example is associated with a fixed binary mask
+drawn from a Bernoulli distribution, with probability equal to pk. Thus the relationship between
+inputs and their masks is arbitrary, rather than being mediated by the routing network in COMET.
+Example-tied Dropout: Example-tied dropout (Maini et al., 2023), where each example in the
+training data is associated with a fixed binary mask drawn from a Bernoulli distribution, with probability equal to pk, and a fixed number of “generalization neurons” are active for all examples.
+Standard model L1: A standard MLP model, but using L1 regularization to induce sparsity.
+
+
+We evaluate these models on the CIFAR10 dataset Krizhevsky (2009), with results shown in fig. 4.
+Overall, the optimal model architecture depends on the capacity of the network. When the number
+of neurons is limited and the network has a low capacity to learn the task (i.e., low pk), the standard
+model that utilizes all neurons outperforms most models. However, as network capacity increases
+with more neurons, the COMET model emerges as the top performer. This suggests that the benefits of selective neuron activation become more pronounced as capacity increases. Notice in the
+high-capacity regime the Smaller Model matches the Standard Model, indicating that simply adding
+more neurons does not improve performance while adding neurons subject to COMET’s structured
+sparsity does.
+ 
+ 
+ CONCLUSIONS
+In this work, we propose a sparse neural network method, COMET, that induces a modular, sparse
+architecture with an exponential number of overlapping experts and alleviates key limitations of
+existing modular approaches, including trainable gating functions that often lead to representation
+collapse, non-overlapping experts that hinder knowledge transfer, and the need for explicit input
+IDs. By leveraging a biologically-inspired fixed random projection and k-winner-take-all capping
+operation, COMET determines expert overlap based on input similarity in a fully unsupervised
+manner, enabling faster learning and improved generalization through enhanced forward transfer.
+It should be noted that key features of COMET may occur naturally in standard networks. First,
+similar inputs already tend to have similar hidden representations (see the pk = 1 curve in fig. 2b).
+Second, there may be cases where networks self-organize to process different inputs in different
+subspaces of activation space (see Elhage et al., 2022, for a related demonstration). Nevertheless
+COMET magnifies these effects and our experiments show it improves performance over standard
+networks. Through extensive experiments on various tasks, including image classification, language
+modeling, and regression, we demonstrate that COMET achieves improved performance, especially
+for larger models, demonstrating that our method is applicable to many popular model architectures

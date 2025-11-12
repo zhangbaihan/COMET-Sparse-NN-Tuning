@@ -1,0 +1,39 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+.envrc
+.mypy_cache/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Build / Packaging
+build/
+dist/
+*.egg-info/
+
+# Project artifacts (large / reproducible)
+data/
+results/
+checkpoints/
+*.pth
+*.pt
+*.pkl
+*.pickle
+
+# Plots / Reports
+*.pdf
+
+
