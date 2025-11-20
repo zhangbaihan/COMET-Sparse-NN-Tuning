@@ -1,0 +1,6 @@
+*.pem
+data/
+results/
+*.pdf
+__pycache__/
+*.pyc
