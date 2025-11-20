@@ -133,7 +133,7 @@ def main():
                 save_path = f"results/{model_name}/{args.activation}/{args.optimizer}/lr_{args.lr}/{args.dataset}_topk_{topk}_neurons_{neurons}"
                 os.makedirs(os.path.dirname(save_path), exist_ok=True)
                 with open(save_path, "wb") as f:
-                pickle.dump(model_results, f, protocol=pickle.HIGHEST_PROTOCOL)
+                    pickle.dump(model_results, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def train_and_evaluate(model_name, layer_sizes, topk_rate, train_loader, val_loader, criterion, args, vector_dicts):
