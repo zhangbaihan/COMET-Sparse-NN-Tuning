@@ -51,7 +51,10 @@ def init_model(model_name, seed, dataset_name, layer_sizes, topk_rate, norm, act
         'COMET_affine': lambda: get_COMET_affine(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation, freeze_backbone=False),
         'topk_scheduler': lambda: get_TopK_Scheduler(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation)
     }
-
+    
+    return_model = model_map[model_name]().to(device)
+    total_params = sum(p.numel() for p in return_model.parameters() if p.requires_grad)
+    print(total_params)
     return model_map[model_name]().to(device)
 
 
