@@ -7,7 +7,7 @@ from matplotlib.lines import Line2D
 from utils import get_max_and_min_arrays
 
 # one big plot
-model_names = ['standard_model', 'smaller_model', 'dropout_model', 'COMET_model', 'standard_model_l1', 'top_k_model', 'moe_trainable', 'moe_non_trainable', 'layer_wise_routing', 'bernoulli_masking', 'example_tied_dropout']
+model_names = ['standard_model', 'smaller_model', 'dropout_model', 'COMET_model', 'standard_model_l1', 'top_k_model', 'moe_trainable', 'moe_non_trainable', 'layer_wise_routing', 'bernoulli_masking', 'example_tied_dropout', 'COMET_affine', 'topk_scheduler']
 
 topks = [0.1, 0.5, 0.9]
 neurons_list = [100, 500, 1000, 3000]

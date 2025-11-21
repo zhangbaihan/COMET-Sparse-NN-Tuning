@@ -22,6 +22,7 @@ from models.layer_wise_routing import get_layer_wise_routing
 from models.bernoulli_masking import get_bernoulli_masking
 from models.example_tied_dropout import get_example_tied_dropout
 from models.COMET_affine import get_COMET_affine
+from models.topk_scheduler import get_TopK_Scheduler
 
 warnings.filterwarnings("ignore", category=UserWarning)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -47,7 +48,8 @@ def init_model(model_name, seed, dataset_name, layer_sizes, topk_rate, norm, act
         'layer_wise_routing': lambda: get_layer_wise_routing(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         'bernoulli_masking': lambda: get_bernoulli_masking(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation, layer_1_vector_dict, layer_2_vector_dict, layer_3_vector_dict),
         'example_tied_dropout': lambda: get_example_tied_dropout(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation, layer_1_vector_dict, layer_2_vector_dict, layer_3_vector_dict),
-        'COMET_affine': lambda: get_COMET_affine(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation, freeze_backbone=False)
+        'COMET_affine': lambda: get_COMET_affine(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation, freeze_backbone=False),
+        'topk_scheduler': lambda: get_TopK_Scheduler(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation)
     }
 
     return model_map[model_name]().to(device)
@@ -83,7 +85,7 @@ def main():
 
     all_model_names = [
         'standard_model', 'smaller_model', 'dropout_model', 'COMET_model', 'standard_model_l1',
-        'top_k_model', 'moe_trainable', 'moe_non_trainable', 'layer_wise_routing', 'bernoulli_masking', 'example_tied_dropout', 'COMET_affine'
+        'top_k_model', 'moe_trainable', 'moe_non_trainable', 'layer_wise_routing', 'bernoulli_masking', 'example_tied_dropout', 'COMET_affine', 'topk_scheduler'
     ]
 
     model_names = args.models if args.models else all_model_names
@@ -162,12 +164,6 @@ def train_and_evaluate(model_name, layer_sizes, topk_rate, train_loader, val_loa
             batch_losses, batch_accs = [], []
             for x, y in train_loader:
                 x, y = x.to(device), y.to(device)
-
-                if epoch == 0:
-                    print(f"Device: {device}")
-                    print(f"x is on: {x.device}")
-                    print(f"Model is on: {next(model.parameters()).device}")
-                    print(f"CUDA available: {torch.cuda.is_available()}")
 
                 out = model(x)
                 loss = criterion(out, y)
