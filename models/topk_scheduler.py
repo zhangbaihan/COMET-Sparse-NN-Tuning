@@ -9,7 +9,7 @@ class TopK_Scheduler:
 
     Default behavior:
         - pk = 1.0 for first `step_every` epochs (e.g. 10)
-        - then pk -= 0.1 every `step_every` epochs
+        - then pk -= 0.04 every `step_every` epochs
         - clamped at min_pk = final topk_rate (e.g. 0.1, 0.5, 0.9)
 
     Example for topk_rate = 0.1, step_every = 10:
@@ -22,9 +22,9 @@ class TopK_Scheduler:
     """
     def __init__(self,
                  start_pk: float = 1.0,
-                 step_pk: float = -0.1,
+                 step_pk: float = -0.04,
                  step_every: int = 10,
-                 min_pk: float = 0.1):
+                 min_pk: float = 0.8):
         assert 0.0 < min_pk <= 1.0
         assert 0.0 < start_pk <= 1.0
         assert step_every > 0
