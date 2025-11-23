@@ -1,190 +1,260 @@
 import sys
 sys.dont_write_bytecode = True
+
 import os
 import pickle
 import argparse
+import warnings
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import time
 
+from utils import *
 from loading_datasets import get_data_loaders
+from models.fc_standard import get_standard_model
+from models.dropout_standard_fc import get_dropout_standard_fc
+from models.smaller_fc_standard import get_smaller_standard_fc
 from models.COMET import get_COMET
+from models.topk_fc_standard import get_Top_k_FC_model
+from models.moe import get_moe_model
+from models.layer_wise_routing import get_layer_wise_routing
+from models.bernoulli_masking import get_bernoulli_masking
+from models.example_tied_dropout import get_example_tied_dropout
+from models.COMET_affine import get_COMET_affine
+from models.topk_scheduler import get_TopK_Scheduler
 
-# Device configuration
+warnings.filterwarnings("ignore", category=UserWarning)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+print(f"GPU Available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"GPU Name: {torch.cuda.get_device_name(0)}")
+
+
+def init_model(model_name, seed, dataset_name, layer_sizes, topk_rate, norm, activation,
+               layer_1_vector_dict=None, layer_2_vector_dict=None, layer_3_vector_dict=None):
+    torch.manual_seed(seed)
+    layer_1, layer_2, layer_3, layer_4 = layer_sizes
+
+    model_map = {
+        'standard_model': lambda: get_standard_model(dataset_name, layer_1, layer_2, layer_3, layer_4, norm, activation),
+        'standard_model_l1': lambda: get_standard_model(dataset_name, layer_1, layer_2, layer_3, layer_4, norm, activation),
+        'smaller_model': lambda: get_smaller_standard_fc(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
+        'moe_trainable': lambda: get_moe_model(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation, int(1/topk_rate), True),
+        'moe_non_trainable': lambda: get_moe_model(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation, int(1/topk_rate), False),
+        'dropout_model': lambda: get_dropout_standard_fc(dataset_name, layer_1, layer_2, layer_3, layer_4, norm, activation, dropout_rate=topk_rate),
+        'COMET_model': lambda: get_COMET(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
+        'top_k_model': lambda: get_Top_k_FC_model(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
+        'layer_wise_routing': lambda: get_layer_wise_routing(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
+        'bernoulli_masking': lambda: get_bernoulli_masking(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation,
+                                                           layer_1_vector_dict, layer_2_vector_dict, layer_3_vector_dict),
+        'example_tied_dropout': lambda: get_example_tied_dropout(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation,
+                                                                 layer_1_vector_dict, layer_2_vector_dict, layer_3_vector_dict),
+        'COMET_affine': lambda: get_COMET_affine(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation, freeze_backbone=False),
+        'topk_scheduler': lambda: get_TopK_Scheduler(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation)
+    }
+
+    model = model_map[model_name]().to(device)
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Trainable parameters: {total_params}")
+    return model
+
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train COMET Model")
-    
-    # Data and Training settings
-    parser.add_argument("--dataset", type=str, default="cifar10", choices=["cifar10", "cifar100", "tiny_imagenet", "svhn", "SARCOS"])
+    parser = argparse.ArgumentParser(description="Train different neural models with varying sparsity and architecture")
+    parser.add_argument("--dataset", type=str, default="cifar10",
+                        choices=["cifar10", "cifar100", "tiny_imagenet", "svhn", "SARCOS"])
     parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--seeds", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--optimizer", type=str, default="sgd", choices=["sgd", "adam", "adamW"])
-    parser.add_argument("--seed", type=int, default=42)
-    
-    # Model Architecture
-    parser.add_argument("--neurons", type=int, default=1000, help="Number of neurons per hidden layer")
-    parser.add_argument("--topk", type=float, default=0.1, help="Sparsity rate (fraction of neurons kept)")
+    parser.add_argument("--neurons_list", nargs="+", type=int, default=[100, 500, 1000, 3000])
+    parser.add_argument("--topks", nargs="+", type=float, default=[0.1, 0.5, 0.9])
     parser.add_argument("--activation", type=str, default="softplus")
+    parser.add_argument("--optimizer", type=str, default="sgd", choices=["sgd", "sgd_momentum", "adam", "adamW"])
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--grad_clipping", action="store_true")
+    parser.add_argument("--clip_value", type=float, default=1.0)
+    parser.add_argument("--clip_type", type=str, default="norm", choices=["norm", "value"])
     parser.add_argument("--norm", type=str, default=None, choices=[None, "batch", "layer"])
-    
-    # Saving
-    parser.add_argument("--save_dir", type=str, default="experiments_COMET", help="Directory to save results")
-    
+    parser.add_argument("--models", nargs="+", type=str, default=None,
+                        help="List of models to train (default: all models)")
     return parser.parse_args()
 
-def train_one_epoch(model, loader, criterion, optimizer):
-    model.train()
-    total_loss = 0
-    correct = 0
-    total = 0
-    
-    for x, y in loader:
-        x, y = x.to(device), y.to(device)
-        
-        optimizer.zero_grad()
-        out = model(x)
-        loss = criterion(out, y)
-        loss.backward()
-        optimizer.step()
-        
-        total_loss += loss.item() * x.size(0)
-        
-        # Accuracy
-        if out.shape[1] > 1: # Classification
-            pred = out.argmax(dim=1)
-            correct += (pred == y).sum().item()
-            total += x.size(0)
-        else: # Regression (SARCOS)
-             total += x.size(0)
 
-    avg_loss = total_loss / total
-    acc = correct / total if total > 0 and out.shape[1] > 1 else 0.0
-    return avg_loss, acc
+def get_loss_function(dataset):
+    return nn.MSELoss() if dataset == 'SARCOS' else nn.CrossEntropyLoss()
 
-def validate(model, loader, criterion):
-    model.eval()
-    total_loss = 0
-    correct = 0
-    total = 0
-    
-    with torch.no_grad():
-        for x, y in loader:
-            x, y = x.to(device), y.to(device)
-            out = model(x)
-            loss = criterion(out, y)
-            
-            total_loss += loss.item() * x.size(0)
-            
-            if out.shape[1] > 1:
-                pred = out.argmax(dim=1)
-                correct += (pred == y).sum().item()
-                total += x.size(0)
-            else:
-                 total += x.size(0)
-                 
-    avg_loss = total_loss / total
-    acc = correct / total if total > 0 and out.shape[1] > 1 else 0.0
-    return avg_loss, acc
 
 def main():
     args = parse_args()
-    
-    # Set seed
-    torch.manual_seed(args.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(args.seed)
-        
-    print(f"Starting COMET training on {args.dataset}...")
-    print(f"Device: {device}")
-    
-    # Create save directory
-    run_name = f"{args.dataset}_neurons{args.neurons}_topk{args.topk}_lr{args.lr}_seed{args.seed}"
-    save_path = os.path.join(args.save_dir, run_name)
-    os.makedirs(save_path, exist_ok=True)
-    
-    # Data Loaders
+    criterion = get_loss_function(args.dataset)
     train_loader, val_loader, test_loader, num_classes = get_data_loaders(args.dataset, args.batch_size, False)
-    
-    # Define Layer Sizes (Simple 4-layer structure matching original code)
-    layer_sizes = [args.neurons, args.neurons, args.neurons, num_classes]
-    
-    # Initialize Model
-    model = get_COMET(
-        dataset_name=args.dataset,
-        layer_1_neurons=layer_sizes[0],
-        layer_2_neurons=layer_sizes[1],
-        layer_3_neurons=layer_sizes[2],
-        layer_4_neurons=layer_sizes[3],
-        topk_rate=args.topk,
-        norm=args.norm,
-        activation=args.activation
-    ).to(device)
-    
-    # Loss and Optimizer
-    criterion = nn.MSELoss() if args.dataset == 'SARCOS' else nn.CrossEntropyLoss()
-    
-    if args.optimizer == 'sgd':
-        optimizer = optim.SGD(model.parameters(), lr=args.lr)
-    elif args.optimizer == 'adam':
-        optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    elif args.optimizer == 'adamW':
-        optimizer = optim.AdamW(model.parameters(), lr=args.lr)
-    else:
-        optimizer = optim.SGD(model.parameters(), lr=args.lr) # Default
-        
-    # Logging storage
-    history = {
-        'train_loss': [],
-        'train_acc': [],
-        'val_loss': [],
-        'val_acc': [],
-        'top_k': [],
-        'epoch_times': []
+
+    all_model_names = [
+        'standard_model', 'smaller_model', 'dropout_model', 'COMET_model', 'standard_model_l1',
+        'top_k_model', 'moe_trainable', 'moe_non_trainable', 'layer_wise_routing',
+        'bernoulli_masking', 'example_tied_dropout', 'COMET_affine', 'topk_scheduler'
+    ]
+
+    model_names = args.models if args.models else all_model_names
+
+    for neurons in args.neurons_list:
+        layer_sizes = [neurons, neurons, neurons, num_classes]
+
+        for topk in args.topks:
+            performances = {}
+
+            for model_name in model_names:
+                print(f"Training {model_name} with {neurons} neurons and topk {topk}")
+
+                # Prepare masking vectors if needed
+                layer_1_vector_dict = layer_2_vector_dict = layer_3_vector_dict = None
+                if model_name in ['bernoulli_masking', 'example_tied_dropout']:
+                    p = 0.2 if model_name == 'example_tied_dropout' else 0.5
+                    layer_1_vector_dict, layer_2_vector_dict, layer_3_vector_dict = {}, {}, {}
+                    for batch_idx, (train_x, _) in enumerate(train_loader):
+                        for x in train_x:
+                            key = f'{x[0, 0, 0].item()}{x[1, 1, 1].item()}'
+                            if key not in layer_1_vector_dict:
+                                layer_1_vector_dict[key] = torch.bernoulli(torch.tensor(p).expand(neurons))
+                                layer_2_vector_dict[key] = torch.bernoulli(torch.tensor(p).expand(neurons))
+                                layer_3_vector_dict[key] = torch.bernoulli(torch.tensor(p).expand(neurons))
+                                if model_name == 'example_tied_dropout':
+                                    k = int(topk * neurons)
+                                    layer_1_vector_dict[key][:k] = 1
+                                    layer_2_vector_dict[key][:k] = 1
+                                    layer_3_vector_dict[key][:k] = 1
+
+                # Run one model across seeds
+                model_results = train_and_evaluate(
+                    model_name=model_name,
+                    layer_sizes=layer_sizes,
+                    topk_rate=topk,
+                    train_loader=train_loader,
+                    val_loader=val_loader,
+                    criterion=criterion,
+                    args=args,
+                    vector_dicts=(layer_1_vector_dict, layer_2_vector_dict, layer_3_vector_dict)
+                )
+
+                performances.update(model_results)
+
+                # Save
+                save_path = f"results/{model_name}/{args.activation}/{args.optimizer}/lr_{args.lr}/" \
+                            f"{args.dataset}_topk_{topk}_neurons_{neurons}"
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                with open(save_path, "wb") as f:
+                    pickle.dump(model_results, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def train_and_evaluate(model_name, layer_sizes, topk_rate, train_loader, val_loader, criterion, args, vector_dicts):
+    layer_1_vector_dict, layer_2_vector_dict, layer_3_vector_dict = vector_dicts
+
+    model_train_losses, model_val_losses = [], []
+    model_train_accuracies, model_val_accuracies = [], []
+    model_topks = []  # per-seed list of per-epoch top_k values
+
+    for seed_epoch in range(args.seeds):
+        seed = torch.randint(1, 1000, (1,)).item()
+        model = init_model(
+            model_name, seed, args.dataset, layer_sizes, topk_rate,
+            args.norm, args.activation,
+            layer_1_vector_dict, layer_2_vector_dict, layer_3_vector_dict
+        )
+        param_amount = f'{round(sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6, 2)}M'
+        print(f"Seed {seed_epoch+1}/{args.seeds}, Parameters: {param_amount}")
+
+        optimizer = {
+            'sgd': optim.SGD(model.parameters(), lr=args.lr),
+            'sgd_momentum': optim.SGD(model.parameters(), lr=args.lr, momentum=0.9),
+            'adam': optim.Adam(model.parameters(), lr=args.lr),
+            'adamW': optim.AdamW(model.parameters(), lr=args.lr),
+        }[args.optimizer]
+
+        train_losses, train_accuracies = [], []
+        val_losses, val_accuracies = [], []
+        topk_per_epoch = []
+
+        for epoch in range(args.epochs):
+            # For topk_scheduler, update its internal epoch (sparsity schedule)
+            if model_name == 'topk_scheduler' and hasattr(model, "set_epoch"):
+                model.set_epoch(epoch)
+
+            # --------------------
+            # Train loop
+            # --------------------
+            model.train()
+            batch_losses, batch_accs = [], []
+
+            for x, y in train_loader:
+                x, y = x.to(device), y.to(device)
+
+                out = model(x)
+                loss = criterion(out, y)
+
+                optimizer.zero_grad()
+                loss.backward()
+                if args.grad_clipping:
+                    if args.clip_type == 'norm':
+                        nn.utils.clip_grad_norm_(model.parameters(), args.clip_value)
+                    elif args.clip_type == 'value':
+                        nn.utils.clip_grad_value_(model.parameters(), args.clip_value)
+                optimizer.step()
+
+                acc = (out.argmax(1) == y).float().mean().item()
+                batch_losses.append(loss.item())
+                batch_accs.append(acc)
+
+            train_losses.append(np.mean(batch_losses))
+            train_accuracies.append(np.mean(batch_accs))
+
+            # --------------------
+            # Validation loop
+            # --------------------
+            model.eval()
+            with torch.no_grad():
+                batch_losses, batch_accs = [], []
+                for x, y in val_loader:
+                    x, y = x.to(device), y.to(device)
+                    if model_name in ['bernoulli_masking', 'example_tied_dropout']:
+                        out = model(x, 'test')
+                    else:
+                        out = model(x)
+                    loss = criterion(out, y)
+                    acc = (out.argmax(1) == y).float().mean().item()
+                    batch_losses.append(loss.item())
+                    batch_accs.append(acc)
+
+                val_losses.append(np.mean(batch_losses))
+                val_accuracies.append(np.mean(batch_accs))
+                print(f"Epoch {epoch+1}/{args.epochs}, Val Acc: {val_accuracies[-1]:.4f}")
+
+            # --------------------
+            # Log top_k if present
+            # --------------------
+            if hasattr(model, "top_k"):
+                # COMET, COMET_affine, topk_scheduler all use .top_k
+                topk_value = float(model.top_k)
+            else:
+                topk_value = None
+            topk_per_epoch.append(topk_value)
+
+        model_train_losses.append(train_losses)
+        model_val_losses.append(val_losses)
+        model_train_accuracies.append(train_accuracies)
+        model_val_accuracies.append(val_accuracies)
+        model_topks.append(topk_per_epoch)
+
+    return {
+        f"{model_name}_train_loss": model_train_losses,
+        f"{model_name}_val_loss": model_val_losses,
+        f"{model_name}_train_acc": model_train_accuracies,
+        f"{model_name}_val_acc": model_val_accuracies,
+        f"{model_name}_topk": model_topks,
+        f"{model_name}_param_amount": param_amount,
     }
-    
-    start_time = time.time()
-    
-    for epoch in range(args.epochs):
-        epoch_start = time.time()
-        
-        t_loss, t_acc = train_one_epoch(model, train_loader, criterion, optimizer)
-        v_loss, v_acc = validate(model, val_loader, criterion)
-        
-        epoch_end = time.time()
-        duration = epoch_end - epoch_start
-        
-        # Log metrics
-        history['train_loss'].append(t_loss)
-        history['train_acc'].append(t_acc)
-        history['val_loss'].append(v_loss)
-        history['val_acc'].append(v_acc)
-        history['top_k'].append(args.topk) # Constant for standard COMET
-        history['epoch_times'].append(duration)
-        
-        print(f"Epoch {epoch+1}/{args.epochs} | "
-              f"Train Loss: {t_loss:.4f} Acc: {t_acc:.4f} | "
-              f"Val Loss: {v_loss:.4f} Acc: {v_acc:.4f} | "
-              f"TopK: {args.topk} | Time: {duration:.2f}s")
-              
-    total_time = time.time() - start_time
-    print(f"Training completed in {total_time:.2f}s")
-    
-    # Save Model State
-    model_save_path = os.path.join(save_path, "model_state.pth")
-    torch.save(model.state_dict(), model_save_path)
-    print(f"Model saved to {model_save_path}")
-    
-    # Save History
-    history_save_path = os.path.join(save_path, "training_logs.pkl")
-    with open(history_save_path, "wb") as f:
-        pickle.dump(history, f)
-    print(f"Logs saved to {history_save_path}")
+
 
 if __name__ == "__main__":
     main()
-
