@@ -51,6 +51,10 @@ def plot_confusion_matrix(y_true, y_pred, title, ax=None):
     ax.set_xlabel('Predicted')
     ax.set_ylabel('True')
 
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Saved confusion matrix to {save_path}")
+
 def visualize_errors(results, val_set, num_examples=5):
     """
     Visualizes specific misclassified examples.
@@ -100,7 +104,11 @@ def visualize_errors(results, val_set, num_examples=5):
         ax.axis('off')
     
     plt.tight_layout()
-    plt.show()
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Saved error examples to {save_path}")
+    else:
+        plt.show()
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze detailed results from COMET experiments")
@@ -111,6 +119,9 @@ def main():
     res = load_results(args.file)
     if res is None: return
 
+    base_dir = os.path.dirname(args.file)
+    base_name = os.path.splitext(os.path.basename(args.file))[0]
+
     # 1. Print Metrics
     print("\n" + "="*40)
     print("Classification Report")
@@ -119,13 +130,14 @@ def main():
 
     # 2. Confusion Matrix
     print("Generating Confusion Matrix...")
-    plot_confusion_matrix(res['y_true'], res['y_pred'], title="Confusion Matrix")
-    plt.show()
+    cm_path = os.path.join(base_dir, f"{base_name}_confusion_matrix.png")
+    plot_confusion_matrix(res['y_true'], res['y_pred'], title="Confusion Matrix", save_path=cm_path)
 
     # 3. Visualize Errors
     print("Visualizing Error Examples...")
     val_set = get_validation_dataset()
-    visualize_errors(res, val_set)
+    errors_path = os.path.join(base_dir, f"{base_name}_error_examples.png")
+    visualize_errors(res, val_set, save_path=errors_path)
 
 if __name__ == "__main__":
     main()
