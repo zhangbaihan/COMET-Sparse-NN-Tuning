@@ -39,7 +39,7 @@ def get_validation_dataset(root='./data', dataset_name='cifar10'):
         print(f"Dataset {dataset_name} visualization not yet supported in this script.")
         return None
 
-def plot_confusion_matrix(y_true, y_pred, title, ax=None):
+def plot_confusion_matrix(y_true, y_pred, title, ax=None, save_path=None):
     """Draws a confusion matrix."""
     cm = confusion_matrix(y_true, y_pred)
     if ax is None:
@@ -55,7 +55,7 @@ def plot_confusion_matrix(y_true, y_pred, title, ax=None):
         plt.savefig(save_path)
         print(f"Saved confusion matrix to {save_path}")
 
-def visualize_errors(results, val_set, num_examples=5):
+def visualize_errors(results, val_set, num_examples=5, save_path=None):
     """
     Visualizes specific misclassified examples.
     """
