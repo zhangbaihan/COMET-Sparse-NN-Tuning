@@ -10,6 +10,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 # Import your models
 from models.COMET import get_COMET
 from models.COMET_structure import get_COMET_structure
+from models.COMET_center import get_COMET_center
 # Add others as needed
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -28,6 +29,8 @@ def load_model(model_type, weights_path, args):
         model = get_COMET_structure('cifar10', *layer_sizes, topk, norm, act)
     elif model_type == 'COMET_highpass':
         model = get_COMET_highpass('cifar10', *layer_sizes, topk, norm, act)
+    elif model_type == 'COMET_center':
+        model = get_COMET_center('cifar10', *layer_sizes, topk, norm, act)
     else:
         raise ValueError(f"Unknown model: {model_type}")
         
