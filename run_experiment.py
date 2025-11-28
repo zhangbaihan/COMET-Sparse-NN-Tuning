@@ -19,9 +19,11 @@ from loading_datasets import get_data_loaders
 try:
     from COMET import get_COMET
     from models.orthogonal import get_Orthogonal
+    from models.COMET_edge import get_COMET_edge
 except ImportError:
     from models.COMET import get_COMET
     from models.orthogonal import get_Orthogonal
+    from models.COMET_edge import get_COMET_edge
 
 warnings.filterwarnings("ignore", category=UserWarning)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -128,6 +130,7 @@ def init_model(model_name, seed, dataset_name, layer_sizes, topk_rate, norm, act
     model_map = {
         'COMET_model': lambda: get_COMET(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         'Orthogonal': lambda: get_Orthogonal(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
+        'COMET_edge': lambda: get_COMET_edge(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         # 'my_new_model': lambda: get_new_model(...) 
     }
 
