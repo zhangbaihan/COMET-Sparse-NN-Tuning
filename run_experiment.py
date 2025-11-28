@@ -20,10 +20,12 @@ try:
     from COMET import get_COMET
     from models.orthogonal import get_Orthogonal
     from models.COMET_edge import get_COMET_edge
+    from models.COMET_highpass import get_COMET_highpass
 except ImportError:
     from models.COMET import get_COMET
     from models.orthogonal import get_Orthogonal
     from models.COMET_edge import get_COMET_edge
+    from models.COMET_highpass import get_COMET_highpass
 
 warnings.filterwarnings("ignore", category=UserWarning)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -131,6 +133,7 @@ def init_model(model_name, seed, dataset_name, layer_sizes, topk_rate, norm, act
         'COMET_model': lambda: get_COMET(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         'Orthogonal': lambda: get_Orthogonal(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         'COMET_edge': lambda: get_COMET_edge(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
+        'COMET_highpass': lambda: get_COMET_highpass(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         # 'my_new_model': lambda: get_new_model(...) 
     }
 
