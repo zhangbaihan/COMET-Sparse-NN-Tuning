@@ -66,12 +66,18 @@ def get_COMET_center(dataset_name, layer_1_neurons, layer_2_neurons, layer_3_neu
             # Activation
             activations = {'softplus': nn.Softplus(), 'relu': nn.ReLU(), 'tanh': nn.Tanh()}
             self.act = activations.get(activation, nn.Softplus())
+            
+            # Internal masks storage for analysis
+            self.layer_1_mask = None
+            self.layer_2_mask = None
+            self.layer_3_mask = None
 
         def _apply_center_mask(self, x):
             # Reshape (B, 3072) -> (B, 3, 32, 32)
             x_img = x.view(-1, 3, self.img_size, self.img_size)
             
-            # Apply Mask             x_masked = x_img * self.center_mask
+            # Apply Mask
+            x_masked = x_img * self.center_mask
             
             # Flatten
             return x_masked.view(-1, self.input_dim)
@@ -89,6 +95,7 @@ def get_COMET_center(dataset_name, layer_1_neurons, layer_2_neurons, layer_3_neu
                 x_center = self._apply_center_mask(x_flat)
                 x_spec1 = self.spec_1(x_center)
                 mask1 = mask_topk(x_spec1, self.top_k)
+                self.layer_1_mask = mask1 # Save for analysis!
             x = x_nn * mask1
 
             if self.norm_fc1 is not None: x = self.norm_fc1(x)
@@ -100,6 +107,7 @@ def get_COMET_center(dataset_name, layer_1_neurons, layer_2_neurons, layer_3_neu
                 if self.norm_fc1 is not None: x_spec1 = self.norm_fc1(x_spec1)
                 x_spec2 = self.spec_2(x_spec1 * mask1)
                 mask2 = mask_topk(x_spec2, self.top_k)
+                self.layer_2_mask = mask2 # Save for analysis!
             x = x_nn * mask2
 
             if self.norm_fc2 is not None: x = self.norm_fc2(x)
@@ -111,6 +119,7 @@ def get_COMET_center(dataset_name, layer_1_neurons, layer_2_neurons, layer_3_neu
                 if self.norm_fc2 is not None: x_spec2 = self.norm_fc2(x_spec2)
                 x_spec3 = self.spec_3(x_spec2 * mask2)
                 mask3 = mask_topk(x_spec3, self.top_k)
+                self.layer_3_mask = mask3 # Save for analysis!
             x = x_nn * mask3
 
             if self.norm_fc3 is not None: x = self.norm_fc3(x)
