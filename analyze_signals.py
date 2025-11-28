@@ -8,8 +8,8 @@ from collections import defaultdict
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Import your models
-from COMET import get_COMET
-from models.COMET_highpass import get_COMET_highpass
+from models.COMET import get_COMET
+from models.COMET_structure import get_COMET_structure
 # Add others as needed
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
