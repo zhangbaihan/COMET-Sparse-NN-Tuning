@@ -18,8 +18,10 @@ from loading_datasets import get_data_loaders
 # Try importing COMET from root or models package to be robust
 try:
     from COMET import get_COMET
+    from models.orthogonal import get_Orthogonal
 except ImportError:
     from models.COMET import get_COMET
+    from models.orthogonal import get_Orthogonal
 
 warnings.filterwarnings("ignore", category=UserWarning)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -125,6 +127,7 @@ def init_model(model_name, seed, dataset_name, layer_sizes, topk_rate, norm, act
     # Add your future experimental models here.
     model_map = {
         'COMET_model': lambda: get_COMET(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
+        'Orthogonal': lambda: get_Orthogonal(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         # 'my_new_model': lambda: get_new_model(...) 
     }
 
@@ -283,7 +286,7 @@ def parse_args():
     parser.add_argument("--clip_type", type=str, default="norm", choices=["norm", "value"])
     parser.add_argument("--norm", type=str, default=None, choices=[None, "batch", "layer"])
     parser.add_argument("--models", nargs="+", type=str, default=["COMET_model"], 
-                        help="List of models to run. Currently supports: COMET_model")
+                        help="List of models to run. Options: COMET_model, Orthogonal")
     return parser.parse_args()
 
 def get_loss_function(dataset):
