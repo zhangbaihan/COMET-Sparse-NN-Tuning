@@ -21,11 +21,13 @@ try:
     from models.orthogonal import get_Orthogonal
     from models.COMET_edge import get_COMET_edge
     from models.COMET_highpass import get_COMET_highpass
+    from models.COMET_structure import get_COMET_structure
 except ImportError:
     from models.COMET import get_COMET
     from models.orthogonal import get_Orthogonal
     from models.COMET_edge import get_COMET_edge
     from models.COMET_highpass import get_COMET_highpass
+    from models.COMET_structure import get_COMET_structure
 
 warnings.filterwarnings("ignore", category=UserWarning)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -134,6 +136,7 @@ def init_model(model_name, seed, dataset_name, layer_sizes, topk_rate, norm, act
         'Orthogonal': lambda: get_Orthogonal(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         'COMET_edge': lambda: get_COMET_edge(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         'COMET_highpass': lambda: get_COMET_highpass(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
+        'COMET_structure': lambda: get_COMET_structure(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         # 'my_new_model': lambda: get_new_model(...) 
     }
 
