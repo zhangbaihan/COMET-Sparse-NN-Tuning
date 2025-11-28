@@ -56,9 +56,15 @@ def get_COMET_structure(dataset_name, layer_1_neurons, layer_2_neurons, layer_3_
             activations = {'softplus': nn.Softplus(), 'relu': nn.ReLU(), 'tanh': nn.Tanh()}
             self.act = activations.get(activation, nn.Softplus())
 
-            # Instance Norm for the Router (Fixed, no affine parameters)
-            # This ensures (x - mean) / std happens per image
-            self.router_norm = nn.InstanceNorm1d(self.input_dim_router, affine=False)
+            # Instance Norm for the Router
+            # We treat the image as having 1 channel and 1024 length.
+            # num_features=1 ensures it normalizes that single channel using stats from the length dim.
+            self.router_norm = nn.InstanceNorm1d(1, affine=False)
+            
+            # Internal masks storage for analysis
+            self.layer_1_mask = None
+            self.layer_2_mask = None
+            self.layer_3_mask = None
 
         def _get_structure_map(self, x):
             """
@@ -75,7 +81,7 @@ def get_COMET_structure(dataset_name, layer_1_neurons, layer_2_neurons, layer_3_
             x_flat = x_gray.view(-1, self.input_dim_router)
             
             # 2. Instance Normalization
-            # Unsqueeze to (B, C, L) for InstanceNorm1d, then squeeze back
+            # Input to InstanceNorm1d must be (Batch, Channels, Length) -> (B, 1, 1024)
             x_norm = self.router_norm(x_flat.unsqueeze(1)).squeeze(1)
             
             return x_norm
@@ -84,15 +90,16 @@ def get_COMET_structure(dataset_name, layer_1_neurons, layer_2_neurons, layer_3_
             x_flat = x.view(-1, self.input_dim_backbone)
 
             # --- Layer 1 ---
-            # Backbone Path (Sees Full Color)
+            # Backbone Path
             x_nn = self.fc1(x_flat)
             x_nn = self.act(x_nn)
             
-            # Routing Path (Sees Structure Only) [Image of Grayscale conversion]
+            # Routing Path
             with torch.no_grad():
                 x_struct = self._get_structure_map(x_flat) 
                 x_spec1 = self.spec_1(x_struct)
                 mask1 = mask_topk(x_spec1, self.top_k)
+                self.layer_1_mask = mask1 # Save for analysis!
             x = x_nn * mask1
 
             if self.norm_fc1 is not None: x = self.norm_fc1(x)
@@ -104,6 +111,7 @@ def get_COMET_structure(dataset_name, layer_1_neurons, layer_2_neurons, layer_3_
                 if self.norm_fc1 is not None: x_spec1 = self.norm_fc1(x_spec1)
                 x_spec2 = self.spec_2(x_spec1 * mask1)
                 mask2 = mask_topk(x_spec2, self.top_k)
+                self.layer_2_mask = mask2 # Save for analysis!
             x = x_nn * mask2
 
             if self.norm_fc2 is not None: x = self.norm_fc2(x)
@@ -115,6 +123,7 @@ def get_COMET_structure(dataset_name, layer_1_neurons, layer_2_neurons, layer_3_
                 if self.norm_fc2 is not None: x_spec2 = self.norm_fc2(x_spec2)
                 x_spec3 = self.spec_3(x_spec2 * mask2)
                 mask3 = mask_topk(x_spec3, self.top_k)
+                self.layer_3_mask = mask3 # Save for analysis!
             x = x_nn * mask3
 
             if self.norm_fc3 is not None: x = self.norm_fc3(x)
