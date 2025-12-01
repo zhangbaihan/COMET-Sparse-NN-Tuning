@@ -1,0 +1,4 @@
+*.pem
+downloaded_results/
+data/
+*.png
