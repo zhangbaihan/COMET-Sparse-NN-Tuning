@@ -27,6 +27,7 @@ try:
     from models.COMET_normalized import get_COMET_normalized
     from models.COMET_Orth import get_Orthogonal
     from models.COMET_Hebbian import get_Oja_Robust
+    from models.COMET_foveal import get_COMET_foveal
 except ImportError:
     from models.COMET import get_COMET
     from models.orthogonal import get_Orthogonal
@@ -38,6 +39,7 @@ except ImportError:
     from models.COMET_normalized import get_COMET_normalized
     from models.COMET_Orth import get_Orthogonal
     from models.COMET_Hebbian import get_Oja_Robust
+    from models.COMET_foveal import get_COMET_foveal
 
 warnings.filterwarnings("ignore", category=UserWarning)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -152,6 +154,7 @@ def init_model(model_name, seed, dataset_name, layer_sizes, topk_rate, norm, act
         'COMET_normalized_model': lambda: get_COMET_normalized(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         'COMET_Orth': lambda: get_Orthogonal(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         'COMET_Hebbian': lambda: get_Oja_Robust(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
+        'COMET_foveal': lambda: get_COMET_foveal(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         # 'my_new_model': lambda: get_new_model(...) 
     }
 
