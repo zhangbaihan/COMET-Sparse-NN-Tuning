@@ -9,10 +9,10 @@ from scipy.stats import pearsonr
 # Import factories
 try:
     from models.COMET import get_COMET
-    from models.orthogonal import get_Orthogonal
+    from models.COMET_Orth import get_Orthogonal
 except ImportError:
     from COMET import get_COMET
-    from models.orthogonal import get_Orthogonal
+    from models.COMET_Orth import get_Orthogonal
 
 from loading_datasets import get_data_loaders
 
