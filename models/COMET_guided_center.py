@@ -31,9 +31,8 @@ class CenteringLayer(nn.Module):
         return x - mean
 
 class HybridRouter(nn.Module):
-    def __init__(self, input_dim, output_dim, bottleneck_dim=32, alpha=1.0):
+    def __init__(self, input_dim, output_dim, bottleneck_dim=32):
         super().__init__()
-        self.alpha = alpha
         
         # 1. Fixed Branch (The Anchor)
         self.static = nn.Linear(input_dim, output_dim, bias=False)
@@ -46,22 +45,21 @@ class HybridRouter(nn.Module):
             nn.Linear(bottleneck_dim, output_dim, bias=False)
         )
         
-        # Init semantic branch to near-zero to start as pure COMET
+        # Init semantic branch to near-zero so it starts transparent
         nn.init.normal_(self.semantic[0].weight, std=0.01)
         nn.init.normal_(self.semantic[2].weight, std=0.01)
 
-    def forward(self, x):
-        # We assume x is ALREADY centered by the model before being passed here
-        return self.static(x) + self.alpha * self.semantic(x)
+    def forward(self, x, alpha):
+        # Result = Fixed + alpha * Semantic
+        return self.static(x) + alpha * self.semantic(x)
 
 def get_guided_center(dataset_name, layer_1, layer_2, layer_3, layer_4, 
-                      topk_rate, norm, activation, bottleneck_dim=32, alpha=1.0):
+                      topk_rate, norm, activation, bottleneck_dim=32):
     
     class GuidedCenterModel(nn.Module):
         def __init__(self):
             super().__init__()
 
-            # 1. Dimensions
             if dataset_name in ['cifar10', 'cifar100', 'svhn']:
                 input_dim = 32 * 32 * 3
             elif dataset_name == 'mnist':
@@ -71,20 +69,19 @@ def get_guided_center(dataset_name, layer_1, layer_2, layer_3, layer_4,
             else:
                 raise ValueError(f"Unsupported dataset: {dataset_name}")
 
-            # 2. Backbone
+            # Backbone
             self.fc1 = nn.Linear(input_dim, layer_1)
             self.fc2 = nn.Linear(layer_1, layer_2)
             self.fc3 = nn.Linear(layer_2, layer_3)
             self.fc4 = nn.Linear(layer_3, layer_4)
 
-            # 3. Pre-processor
+            # Pre-processor
             self.center = CenteringLayer()
 
-            # 4. Hybrid Routers (Replacing Fixed Specs)
-            # Note: We pass bottleneck_dim and alpha
-            self.router_1 = HybridRouter(input_dim, layer_1, bottleneck_dim, alpha)
-            self.router_2 = HybridRouter(layer_1, layer_2, bottleneck_dim, alpha)
-            self.router_3 = HybridRouter(layer_2, layer_3, bottleneck_dim, alpha)
+            # Hybrid Routers
+            self.router_1 = HybridRouter(input_dim, layer_1, bottleneck_dim)
+            self.router_2 = HybridRouter(layer_1, layer_2, bottleneck_dim)
+            self.router_3 = HybridRouter(layer_2, layer_3, bottleneck_dim)
 
             self.top_k = topk_rate
             self.norm_init = nn.LayerNorm(input_dim) if norm == 'layer' else None
@@ -92,12 +89,10 @@ def get_guided_center(dataset_name, layer_1, layer_2, layer_3, layer_4,
             activations = {'gelu': nn.GELU(), 'relu': nn.ReLU(), 'softplus': nn.Softplus()}
             self.act = activations.get(activation, nn.ReLU())
 
-            # Masks
             self.layer_1_mask = None
             self.layer_2_mask = None
             self.layer_3_mask = None
 
-            # 5. Orthogonal Init
             self.apply_orthogonal_init(activation)
 
         def apply_orthogonal_init(self, act_name):
@@ -107,52 +102,37 @@ def get_guided_center(dataset_name, layer_1, layer_2, layer_3, layer_4,
             for m in [self.fc1, self.fc2, self.fc3]:
                 orthogonal_init_(m.weight, gain=gain)
                 if m.bias is not None: init.constant_(m.bias, 0)
-            
             orthogonal_init_(self.fc4.weight, gain=1.0)
             
-            # Init the FIXED part of the routers orthogonally
-            # (The learnable part is already init to near-zero in HybridRouter class)
+            # Init the FIXED part of the routers
             for router in [self.router_1, self.router_2, self.router_3]:
                 orthogonal_init_(router.static.weight, gain=1.41)
 
-        def forward(self, x):
+        def forward(self, x, alpha=1.0):
             if dataset_name in ['cifar10', 'cifar100', 'svhn']:
                 x_flat = x.view(-1, 32 * 32 * 3)
             else:
                 x_flat = x.view(-1, 21)
 
-            # Backbone Norm
             if self.norm_init: x_backbone = self.norm_init(x_flat)
             else: x_backbone = x_flat
 
-            # --- ROUTER PRE-PROCESSING ---
-            # We center the input ONCE. 
-            # Both the Fixed and Learnable branches of HybridRouter will see this centered input.
+            # Center input for router
             with torch.no_grad():
                 x_router = self.center(x_flat)
                 
             # Layer 1
             x_nn = self.act(self.fc1(x_backbone))
-            
-            # Hybrid Routing on Centered Input
-            # Note: We allow gradients to flow into the learnable part of the router!
-            # So we do NOT use torch.no_grad() for the router call itself, 
-            # only for the centering (which has no params anyway).
-            scores_1 = self.router_1(x_router) 
+            scores_1 = self.router_1(x_router, alpha) 
             mask1 = mask_topk(scores_1, self.top_k)
             self.layer_1_mask = mask1
             x = x_nn * mask1
 
             # Layer 2
             x_nn = self.act(self.fc2(x))
-            
-            # Center previous activation for router
             with torch.no_grad():
-                x_router_2 = self.center(x_nn.detach()) # Detach backbone grad? 
-                # Decision: We usually DON'T want the router to shape the backbone features 
-                # purely to make routing easier. So detaching x_router inputs is standard practice.
-            
-            scores_2 = self.router_2(x_router_2)
+                x_router_2 = self.center(x_nn.detach())
+            scores_2 = self.router_2(x_router_2, alpha)
             mask2 = mask_topk(scores_2, self.top_k)
             self.layer_2_mask = mask2
             x = x_nn * mask2
@@ -161,13 +141,11 @@ def get_guided_center(dataset_name, layer_1, layer_2, layer_3, layer_4,
             x_nn = self.act(self.fc3(x))
             with torch.no_grad():
                 x_router_3 = self.center(x_nn.detach())
-                
-            scores_3 = self.router_3(x_router_3)
+            scores_3 = self.router_3(x_router_3, alpha)
             mask3 = mask_topk(scores_3, self.top_k)
             self.layer_3_mask = mask3
             x = x_nn * mask3
 
-            # Output
             x = self.fc4(x)
             return x
 

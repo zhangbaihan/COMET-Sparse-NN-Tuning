@@ -192,7 +192,6 @@ def train_and_evaluate(model_name, layer_sizes, topk_rate, train_loader, val_loa
 
         if hasattr(model, 'pretrain_router'):
             print(f"Model has pretrain_router method. Starting pre-training...")
-            # You can adjust epochs/lr here or add them to args
             model.pretrain_router(train_loader, epochs=5, lr=0.01, device=device)
 
         optimizer = {
@@ -207,14 +206,27 @@ def train_and_evaluate(model_name, layer_sizes, topk_rate, train_loader, val_loa
         train_accs, val_accs = [], []
 
         for epoch in range(args.epochs):
+            # --- ALPHA WARMUP SCHEDULE ---
+            # Linear ramp from 0.0 to 1.0 over the first 20 epochs
+            current_alpha = None
+            if model_name == 'COMET_guided_center':
+                if epoch < 20:
+                    current_alpha = epoch / 20.0
+                else:
+                    current_alpha = 1.0
+
             # Train
             model.train()
             batch_losses, batch_accs_list = [], []
             for x, y in train_loader:
                 x, y = x.to(device), y.to(device)
                 
-                # Forward
-                out = model(x)
+                # Forward with Alpha check
+                if model_name == 'COMET_guided_center':
+                    out = model(x, alpha=current_alpha)
+                else:
+                    out = model(x)
+                
                 loss = criterion(out, y)
                 
                 # Backward
@@ -241,9 +253,12 @@ def train_and_evaluate(model_name, layer_sizes, topk_rate, train_loader, val_loa
                 v_losses, v_accs = [], []
                 for x, y in val_loader:
                     x, y = x.to(device), y.to(device)
-                    # Compatibility handle
-                    try: out = model(x)
-                    except TypeError: out = model(x, 'test')
+                    # Forward Compatibility
+                    if model_name == 'COMET_guided_center':
+                        out = model(x, alpha=current_alpha)
+                    else:
+                        try: out = model(x)
+                        except TypeError: out = model(x, 'test')
                         
                     loss = criterion(out, y)
                     acc = (out.argmax(1) == y).float().mean().item()
@@ -254,16 +269,16 @@ def train_and_evaluate(model_name, layer_sizes, topk_rate, train_loader, val_loa
                 val_accs.append(np.mean(v_accs))
                 
             if (epoch + 1) % 10 == 0 or epoch == 0:
-                print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_losses[-1]:.4f} | Val Acc: {val_accs[-1]:.4f}")
+                alpha_msg = f" | Alpha: {current_alpha:.2f}" if current_alpha is not None else ""
+                print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_losses[-1]:.4f} | Val Acc: {val_accs[-1]:.4f}{alpha_msg}")
 
         # 3. Post-Training Analysis & Saving
         print(f"\n--- Training Finished for Seed {seed_i+1} ---")
         
-        # Directory Structure: results/<activation>/<opt>/<lr>/<dataset>_topk_<k>_neurons_<n>/
         base_dir = f"results/{model_name}/{args.activation}/{args.optimizer}/lr_{args.lr}/{args.dataset}_topk_{topk_rate}_neurons_{layer_sizes[0]}"
         os.makedirs(base_dir, exist_ok=True)
 
-        # A. Save Detailed Predictions (For Confusion Matrix/Error Analysis)
+        # A. Save Detailed Predictions
         detailed_path = f"{base_dir}/seed_{seed_i}_detailed.pkl"
         save_detailed_results(model, val_loader, detailed_path)
 
@@ -282,17 +297,15 @@ def train_and_evaluate(model_name, layer_sizes, topk_rate, train_loader, val_loa
             print(f"-> Final Test Set Accuracy: {test_accuracy:.4f}")
             model_results["test_acc"].append(test_accuracy)
         
-        # E. Save Config (Once per run type is enough, overwriting is fine)
+        # E. Save Config
         with open(f"{base_dir}/config.json", "w") as f:
             json.dump(vars(args), f, indent=4)
 
-        # Append to aggregates
         model_results["train_loss"].append(train_losses)
         model_results["val_loss"].append(val_losses)
         model_results["train_acc"].append(train_accs)
         model_results["val_acc"].append(val_accs)
 
-    # Save aggregated learning curves (for backward compatibility with plot_results.py)
     agg_save_path = f"{base_dir}/aggregated_metrics.pkl"
     with open(agg_save_path, "wb") as f:
         pickle.dump(model_results, f)
