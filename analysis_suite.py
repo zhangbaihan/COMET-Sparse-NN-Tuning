@@ -16,11 +16,11 @@ from tqdm import tqdm
 # Import Model Factories
 try:
     from models.COMET import get_COMET
-    from models.orthogonal import get_Orthogonal
+    from models.COMET_Orth import get_Orthogonal
     from models.COMET_center import get_COMET_center
 except ImportError:
     from COMET import get_COMET
-    from models.orthogonal import get_Orthogonal
+    from models.COMET_Orth import get_Orthogonal
     from models.COMET_center import get_COMET_center
 
 from loading_datasets import get_data_loaders
