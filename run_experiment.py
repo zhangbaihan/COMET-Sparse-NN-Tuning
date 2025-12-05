@@ -28,7 +28,7 @@ try:
     from models.COMET_Orth import get_Orthogonal
     from models.COMET_Hebbian import get_Oja_Robust
     from models.COMET_foveal import get_COMET_foveal
-    from models.COMET_guided.center import get_guided_center
+    from models.COMET_guided_center import get_guided_center
 except ImportError:
     from models.COMET import get_COMET
     from models.orthogonal import get_Orthogonal
@@ -41,7 +41,7 @@ except ImportError:
     from models.COMET_Orth import get_Orthogonal
     from models.COMET_Hebbian import get_Oja_Robust
     from models.COMET_foveal import get_COMET_foveal
-    from models.COMET_guided.center import get_guided_center
+    from models.COMET_guided_center import get_guided_center
 
 warnings.filterwarnings("ignore", category=UserWarning)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
