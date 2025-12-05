@@ -11,37 +11,12 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
-# Import your modules
 from loading_datasets import get_data_loaders
 
-# Try importing COMET from root or models package to be robust
-try:
-    from COMET import get_COMET
-    from models.orthogonal import get_Orthogonal
-    from models.COMET_edge import get_COMET_edge
-    from models.COMET_highpass import get_COMET_highpass
-    from models.COMET_structure import get_COMET_structure
-    from models.COMET_center import get_COMET_center
-    from models.COMET_conv_router import get_COMET_conv_router
-    from models.COMET_normalized import get_COMET_normalized
-    from models.COMET_Orth import get_Orthogonal
-    from models.COMET_Hebbian import get_Oja_Robust
-    from models.COMET_foveal import get_COMET_foveal
-    from models.COMET_guided_center import get_guided_center
-except ImportError:
-    from models.COMET import get_COMET
-    from models.orthogonal import get_Orthogonal
-    from models.COMET_edge import get_COMET_edge
-    from models.COMET_highpass import get_COMET_highpass
-    from models.COMET_structure import get_COMET_structure
-    from models.COMET_center import get_COMET_center
-    from models.COMET_conv_router import get_COMET_conv_router
-    from models.COMET_normalized import get_COMET_normalized
-    from models.COMET_Orth import get_Orthogonal
-    from models.COMET_Hebbian import get_Oja_Robust
-    from models.COMET_foveal import get_COMET_foveal
-    from models.COMET_guided_center import get_guided_center
+from models.COMET import get_COMET
+from models.COMET_center import get_COMET_center
+from models.COMET_foveal import get_COMET_foveal
+from models.COMET_guided_center import get_guided_center
 
 warnings.filterwarnings("ignore", category=UserWarning)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -144,7 +119,6 @@ def init_model(model_name, seed, dataset_name, layer_sizes, topk_rate, norm, act
     layer_1, layer_2, layer_3, layer_4 = layer_sizes
 
     # Dictionary to hold model factories. 
-    # Add your future experimental models here.
     model_map = {
         'COMET_model': lambda: get_COMET(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         'Orthogonal': lambda: get_Orthogonal(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
@@ -158,7 +132,6 @@ def init_model(model_name, seed, dataset_name, layer_sizes, topk_rate, norm, act
         'COMET_Hebbian': lambda: get_Oja_Robust(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         'COMET_foveal': lambda: get_COMET_foveal(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
         'COMET_guided_center': lambda: get_guided_center(dataset_name, layer_1, layer_2, layer_3, layer_4, topk_rate, norm, activation),
-        # 'my_new_model': lambda: get_new_model(...) 
     }
 
     if model_name not in model_map:
@@ -322,9 +295,9 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--seeds", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=32)
-    # Defaulting to 3000 as discussed for better COMET performance
+    # Defaulting to 3000 for better COMET performance
     parser.add_argument("--neurons_list", nargs="+", type=int, default=[3000])
-    # Defaulting to 0.5 as discussed
+    # Defaulting to 0.5 
     parser.add_argument("--topks", nargs="+", type=float, default=[0.5])
     parser.add_argument("--activation", type=str, default="softplus")
     parser.add_argument("--optimizer", type=str, default="sgd", choices=["sgd", "sgd_momentum", "adam", "adamW"])
